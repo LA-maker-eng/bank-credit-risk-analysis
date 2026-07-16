@@ -3,11 +3,9 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
-# ColumnTransformer暂时保留，不去删除原作者导入，只是注释消除PyCharm警告
-# from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, MinMaxScaler, OrdinalEncoder
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score #只保留这一个
+from sklearn.metrics import accuracy_score
 
 
 # 读取本地银行客户数据集，替换原远程csv
@@ -15,7 +13,7 @@ df = pd.read_csv("bank_customer_credit.csv")
 full_data = df.copy()
 full_data = full_data.sample(frac=1).reset_index(drop=True)
 
-# 沿用原作者划分函数
+# 划分函数
 def data_split(df, test_size):
     train_df, test_df = train_test_split(df, test_size=test_size, random_state=42)
     return train_df.reset_index(drop=True), test_df.reset_index(drop=True)
@@ -287,7 +285,7 @@ def full_pipeline(df):
     return df
 
 
-# ===================== 本人二次开发新增业务逻辑（修复报错版本） =====================
+# ===================== 业务逻辑 =====================
 df_train = train_original.copy()
 
 # 【修复1：删除inplace=True，规避CoW链式赋值报错】
@@ -306,7 +304,6 @@ X = df_train[["age","month_income","debt","finance_buy","loan_count","debt_ratio
 y = df_train["is_overdue"]
 X_train,X_test,y_train,y_test = train_test_split(X,y,test_size=0.2,random_state=42)
 
-# 【修复2：fit必须同时传X,y】
 lr = LogisticRegression(max_iter=200)
 lr.fit(X_train, y_train)
 y_pred = lr.predict(X_test)
