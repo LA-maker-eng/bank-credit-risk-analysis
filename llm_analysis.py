@@ -31,6 +31,7 @@ feature_importance = dict(zip(feature_cols, lr.coef_[0]))
 high_risk_cnt = df[(df["month_income"] < 8000) & (df["loan_count"] > 6)].shape[0]
 total_samples = len(df)
 acc = 0.84
+avg_income = "{:,}".format(int(df["month_income"].mean()))
 
 #编写提示词，让大模型站在银行风控人员角度给出结论
 prompt = f"""
@@ -66,6 +67,7 @@ def get_model_result():
         "model_acc": acc,
         "total_samples": total_samples,
         "high_risk_customers": high_risk_cnt,
+        "avg_income": avg_income,
         "feature_importance": feature_importance,
         "report_content": final_report
     }
