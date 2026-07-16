@@ -1,0 +1,152 @@
+import os
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_community.vectorstores import FAISS as LangChainFAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+from langchain_community.llms import Tongyi
+import dashscope
+
+dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+
+RAG_DB_PATH = "faiss_index"
+
+def build_knowledge_base():
+    knowledge_content = """
+银行信贷风控知识手册
+
+一、信贷审批流程
+1. 客户申请：客户提交贷款申请，提供个人信息和资产证明
+2. 资料审核：审核客户身份真实性、收入证明、征信记录
+3. 风险评估：通过风控模型评估客户信用风险等级
+4. 额度审批：根据风险等级确定授信额度和利率
+5. 合同签署：客户确认贷款合同条款并签署
+6. 放款执行：完成放款并开始计息
+
+二、风控指标体系
+1. 资产负债率：负债总额/资产总额，警戒线70%
+2. 逾期率：逾期贷款余额/贷款总余额
+3. 不良贷款率：不良贷款余额/贷款总余额
+4. 客户信用评分：基于历史行为的综合评分
+5. 贷款集中度：单一客户贷款占比
+
+三、风险等级划分
+- A级（低风险）：信用良好，还款能力强
+- B级（中低风险）：信用较好，还款能力一般
+- C级（中风险）：信用一般，存在一定风险
+- D级（高风险）：信用较差，逾期风险高
+
+四、授信策略
+1. 低收入高负债客户：降低授信额度，提高利率
+2. 高收入低负债客户：可适当提高授信额度
+3. 有逾期记录客户：限制或拒绝授信
+4. 优质客户：提供优惠利率和更高额度
+
+五、数据分析方法
+1. 特征工程：提取客户行为特征构建模型
+2. 模型训练：使用机器学习算法训练风控模型
+3. 模型评估：通过准确率、召回率评估模型效果
+4. 模型迭代：根据业务反馈持续优化模型
+
+六、合规要求
+1. 数据隐私保护：严格遵守个人信息保护法
+2. 反洗钱要求：识别可疑交易行为
+3. 合规审查：确保授信流程符合监管规定
+
+七、常见问题解答
+Q: 为什么收入低的客户逾期风险更高？
+A: 收入低意味着还款能力有限，一旦遇到突发情况更容易出现资金缺口。
+
+Q: 理财购买次数与逾期率有什么关系？
+A: 理财购买次数多通常说明客户有一定资金管理意识和风险承受能力，逾期率相对较低。
+
+Q: 如何识别潜在的高风险客户？
+A: 通过特征分析，关注低收入、高负债、频繁借贷的客户群体。
+
+Q: 风控模型的准确率应该达到多少？
+A: 根据业务需求，一般要求准确率达到80%以上，关键是平衡误拒率和漏判率。
+
+八、银行理财产品知识
+1. 保本理财：本金保障，收益相对较低，适合风险厌恶型客户
+2. 混合基金：部分投资股票，部分投资债券，风险收益适中
+3. 股票基金：主要投资股票市场，潜在收益高但风险也高
+4. 定期存款：银行存款，无风险，收益稳定
+5. 货币基金：流动性强，风险低，收益略高于活期存款
+
+九、客户分层管理
+1. 高净值客户：提供专属理财顾问和定制化服务
+2. 普通客户：提供标准化产品和线上服务
+3. 潜在客户：通过营销活动转化为正式客户
+4. 风险客户：加强监控，必要时采取催收措施
+"""
+    
+    if not os.path.exists("knowledge"):
+        os.makedirs("knowledge")
+    
+    with open("knowledge/credit_risk_manual.txt", "w", encoding="utf-8") as f:
+        f.write(knowledge_content)
+    
+    loader = TextLoader("knowledge/credit_risk_manual.txt", encoding="utf-8")
+    documents = loader.load()
+    
+    text_splitter = CharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+    split_docs = text_splitter.split_documents(documents)
+    
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    db = LangChainFAISS.from_documents(split_docs, embeddings)
+    db.save_local(RAG_DB_PATH)
+    
+    return db
+
+def query_knowledge_base(question):
+    if not os.path.exists(RAG_DB_PATH):
+        build_knowledge_base()
+    
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    db = LangChainFAISS.load_local(RAG_DB_PATH, embeddings, allow_dangerous_deserialization=True)
+    
+    retriever = db.as_retriever(search_kwargs={"k": 3})
+    docs = retriever.invoke(question)
+    
+    context = "\n".join([doc.page_content for doc in docs])
+    
+    llm = Tongyi(model_name="qwen-turbo", dashscope_api_key=dashscope.api_key)
+    
+    prompt = f"""
+你是银行信贷风控专家，请基于以下知识库内容回答用户问题：
+
+知识库：
+{context}
+
+用户问题：
+{question}
+
+回答要求：
+1. 优先使用知识库中的信息回答
+2. 如果知识库中没有相关内容，基于你的专业知识回答
+3. 回答要专业、准确、简洁
+4. 使用中文回答
+"""
+    
+    answer = llm.invoke(prompt)
+    
+    return {
+        "answer": answer,
+        "sources": [doc.page_content[:100] for doc in docs]
+    }
+
+if __name__ == "__main__":
+    build_knowledge_base()
+    print("知识库构建完成")
+    
+    questions = [
+        "银行信贷审批流程是什么？",
+        "如何识别高风险客户？",
+        "理财购买次数与逾期率有什么关系？",
+        "风控模型的准确率应该达到多少？"
+    ]
+    
+    for q in questions:
+        print(f"\n问题：{q}")
+        answer = query_knowledge_base(q)
+        print(f"回答：{answer['answer']}")
