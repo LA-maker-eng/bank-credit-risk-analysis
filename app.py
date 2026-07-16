@@ -49,17 +49,37 @@ def get_finance_products():
 
 @app.route("/api/rag_query", methods=["POST"])
 def rag_query():
-    question = request.json.get("question", "")
+    app.logger.info(f"请求方法: {request.method}")
+    app.logger.info(f"Content-Type: {request.content_type}")
+    raw_data = request.get_data().decode('utf-8')
+    app.logger.info(f"原始数据: {raw_data}")
+    
+    if not request.is_json:
+        app.logger.error("请求不是JSON格式")
+        return jsonify({"error": "请求不是JSON格式"}), 400
+    
+    data = request.json
+    app.logger.info(f"解析后的JSON: {data}")
+    
+    question = data.get("question", "")
+    history = data.get("history", [])
+    app.logger.info(f"收到问题: {question}")
+    app.logger.info(f"问题长度: {len(question)}")
+    
     if not question:
+        app.logger.error("问题为空")
         return jsonify({"error": "请输入问题"}), 400
     
     try:
-        result = query_knowledge_base(question)
+        result = query_knowledge_base(question, history)
+        app.logger.info(f"回答长度: {len(result['answer'])}")
+        app.logger.info(f"回答前50字: {result['answer'][:50]}...")
         return jsonify({
             "answer": result["answer"],
             "sources": result["sources"]
         })
     except Exception as e:
+        app.logger.error(f"错误: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/validate", methods=["POST"])
@@ -94,5 +114,115 @@ def sql_query():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/search_customers", methods=["POST"])
+def search_customers():
+    keyword = request.json.get("keyword", "")
+    
+    try:
+        if keyword:
+            query = f'''
+                SELECT 
+                    c.customer_id,
+                    c.name,
+                    c.gender,
+                    c.age,
+                    c.education_level,
+                    c.month_income,
+                    c.debt,
+                    c.debt_ratio,
+                    c.loan_count,
+                    c.is_overdue,
+                    COUNT(lr.record_id) as loan_record_count
+                FROM customers c
+                LEFT JOIN loan_records lr ON c.customer_id = lr.customer_id
+                WHERE c.name LIKE '%{keyword}%' OR c.customer_id = '{keyword}'
+                GROUP BY c.customer_id, c.name, c.gender, c.age, c.education_level, c.month_income, c.debt, c.debt_ratio, c.loan_count, c.is_overdue
+                ORDER BY c.month_income DESC
+                LIMIT 50
+            '''
+        else:
+            query = f'''
+                SELECT 
+                    c.customer_id,
+                    c.name,
+                    c.gender,
+                    c.age,
+                    c.education_level,
+                    c.month_income,
+                    c.debt,
+                    c.debt_ratio,
+                    c.loan_count,
+                    c.is_overdue,
+                    COUNT(lr.record_id) as loan_record_count
+                FROM customers c
+                LEFT JOIN loan_records lr ON c.customer_id = lr.customer_id
+                GROUP BY c.customer_id, c.name, c.gender, c.age, c.education_level, c.month_income, c.debt, c.debt_ratio, c.loan_count, c.is_overdue
+                ORDER BY c.month_income DESC
+                LIMIT 100
+            '''
+        result = execute_query(query)
+        return jsonify({
+            "columns": result.columns.tolist(),
+            "data": result.to_dict(orient="records"),
+            "total": len(result)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/customer_detail/<int:customer_id>")
+def customer_detail(customer_id):
+    try:
+        query = f'''
+            SELECT 
+                c.*,
+                lr.loan_amount,
+                lr.loan_type,
+                lr.interest_rate,
+                lr.repayment_status,
+                fp.product_name,
+                cf.purchase_amount
+            FROM customers c
+            LEFT JOIN loan_records lr ON c.customer_id = lr.customer_id
+            LEFT JOIN customer_finance cf ON c.customer_id = cf.customer_id
+            LEFT JOIN financial_products fp ON cf.product_id = fp.product_id
+            WHERE c.customer_id = {customer_id}
+        '''
+        result = execute_query(query)
+        return jsonify(result.to_dict(orient="records"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/risk_warnings")
+def risk_warnings():
+    try:
+        query = '''
+            SELECT 
+                c.customer_id,
+                c.name,
+                c.month_income,
+                c.debt,
+                c.debt_ratio,
+                c.loan_count,
+                c.is_overdue,
+                CASE 
+                    WHEN c.debt_ratio > 3 THEN '高风险-负债过高'
+                    WHEN c.month_income < 3000 AND c.loan_count > 3 THEN '高风险-低收入高负债'
+                    WHEN c.is_overdue = 1 THEN '高风险-已逾期'
+                    WHEN c.debt_ratio > 2 THEN '中风险-负债偏高'
+                    ELSE '低风险'
+                END as risk_level
+            FROM customers c
+            WHERE c.is_overdue = 1 OR c.debt_ratio > 2 OR (c.month_income < 3000 AND c.loan_count > 3)
+            ORDER BY c.debt_ratio DESC
+            LIMIT 100
+        '''
+        result = execute_query(query)
+        return jsonify({
+            "columns": result.columns.tolist(),
+            "data": result.to_dict(orient="records")
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
