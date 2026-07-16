@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body{font-family:"Microsoft Yahei";padding:30px;line-height:2;}
+        h2{color:#003366;text-align:center;margin-bottom:20px;}
+        h3{border-left:4px solid #005599;padding-left:10px;color:#003366;}
+    </style>
+</head>
+<body>
+    <h2>银行信贷风控分析报告</h2>
+    <p>模型准确率：{{data.model_acc}}</p>
+    <p>样本总数：{{data.total_samples}}</p>
+    <p>高风险客户数量：{{data.high_risk_customers}}</p>
+    <h3>一、特征重要性</h3>
+    {% for key,val in data.feature_importance.items() %}
+    <p>{{key}}：{{val|round(4)}}</p>
+    {% endfor %}
+    <h3>二、风控分析报告</h3>
+    <div>
+        {{ data.report_content.replace("\n","<br>") | safe }}
+    </div>
+</body>
+</html>
