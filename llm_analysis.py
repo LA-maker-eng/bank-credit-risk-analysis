@@ -4,6 +4,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 import dashscope
 from dashscope import Generation
+from datetime import datetime
 
 # 自动读取Windows系统环境变量中的API‑Key，代码内不会出现密钥明文
 dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
@@ -32,6 +33,19 @@ high_risk_cnt = df[(df["month_income"] < 8000) & (df["loan_count"] > 6)].shape[0
 total_samples = len(df)
 acc = 0.84
 avg_income = "{:,}".format(int(df["month_income"].mean()))
+
+overdue_rate = "{:.2f}%".format(df["is_overdue"].mean() * 100)
+total_loans = df["loan_count"].sum()
+high_risk_ratio = "{:.2f}%".format(high_risk_cnt / total_samples * 100)
+
+data_anomaly_count = len(df[(df["month_income"] > 1000000) | (df["loan_count"] > 50) | (df["debt"] < 0)])
+
+avg_debt = "{:,}".format(int(df["debt"].mean()))
+avg_loan_count = "{:.1f}".format(df["loan_count"].mean())
+
+feature_importance_df = pd.DataFrame(list(feature_importance.items()), columns=["特征", "重要性系数"])
+feature_importance_df["重要性系数"] = feature_importance_df["重要性系数"].apply(lambda x: "{:.4f}".format(x))
+feature_importance_df["影响方向"] = feature_importance_df["重要性系数"].apply(lambda x: "正向（增加逾期风险）" if float(x) > 0 else "负向（降低逾期风险）")
 
 #编写提示词，让大模型站在银行风控人员角度给出结论
 prompt = f"""
@@ -68,8 +82,16 @@ def get_model_result():
         "total_samples": total_samples,
         "high_risk_customers": high_risk_cnt,
         "avg_income": avg_income,
+        "overdue_rate": overdue_rate,
+        "total_loans": total_loans,
+        "high_risk_ratio": high_risk_ratio,
+        "data_anomaly_count": data_anomaly_count,
+        "avg_debt": avg_debt,
+        "avg_loan_count": avg_loan_count,
         "feature_importance": feature_importance,
-        "report_content": final_report
+        "feature_importance_df": feature_importance_df.to_dict(orient="records"),
+        "report_content": final_report,
+        "report_date": datetime.now().strftime("%Y年%m月%d日")
     }
 
 if __name__ == "__main__":
